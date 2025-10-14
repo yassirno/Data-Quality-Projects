@@ -1,50 +1,167 @@
-# G8: Tahiri Mouad, Hargas Ali, Nouri Yassir, Bardi Mohamed Ali
 
-## 🧩 Contexte du projet
+# Projet Qualité des Données : Compte Rendu
 
-Cette première étape du projet vise à **concevoir le mapping logique** permettant d’évaluer la **qualité et la cohérence des données** issues des différentes sources du projet **« Consommation énergétique »**.  
-L’objectif est d’identifier comment les attributs des sources (**S1 à S4**) s’articulent pour produire les **tables cibles**, et d’exprimer ces correspondances à l’aide des **opérateurs de l’algèbre relationnelle**.
+**Réalisé par :**  
+- TAHIRI Mouad  
+- NOURI Yassir  
+- HARGAS Ali  
+- BARDI Mohamed Ali  
 
 ---
 
-## 🎯 Objectifs de l’étape
+## 🧩 Première étape
 
-- Identifier les **correspondances** entre les champs des **tables sources** et les **tables cibles**.  
-- Définir les **opérations de jointure**, **filtrage** et **agrégation** nécessaires à la construction des données cibles.  
-- Préparer la **future automatisation** de ces opérations dans un **workflow Airflow**.  
-- Déterminer les **vérifications de qualité** à effectuer sur les sources de données.  
-### Mapping 1 – Consommation_IRIS_Paris
-But : Calculer la *consommation moyenne annuelle* par zone IRIS pour la ville de Paris. On
-utilise la table des consommations de Paris et on la relie à la table IRIS pour identifier la zone
-géographique de chaque rue.
-Formules algébriques :
-T1_paris = Consommation_Paris ⋈ (Consommation_Paris.N = IRIS.ID_Rue) IRIS
-T2_paris = σ (IRIS.ID_Ville = 'Paris')(T1_paris)
-Consommation_IRIS_Paris = γ ID_IRIS, (AVG(NB_KW_Jour) × 365) → Conso_moyenne_annuelle
-(T2_paris)
-Vérifications : correspondance entre rues et IRIS, valeurs manquantes ou négatives, cohérence
-des unités de consommation.
-### Mapping 2 – Consommation_IRIS_Evry
-But : Calculer la consommation moyenne annuelle par zone IRIS pour la ville d’Évry. La logique est
-identique à celle de Paris, en filtrant sur la ville 'Evry'.
-Formules algébriques :
-T1_evry = Consommation_Evry ⋈ (Consommation_Evry.N = IRIS.ID_Rue) IRIS
-T2_evry = σ (IRIS.ID_Ville = 'Evry')(T1_evry)
-Consommation_IRIS_Evry = γ ID_IRIS, (AVG(NB_KW_Jour) × 365) → Conso_moyenne_annuelle
-(T2_evry)
-Vérifications : taux de jointure correct, absence de doublons d’IRIS, contrôle des valeurs
-anormales.
-### Mapping 3 – Consommation_CSP
-But : Évaluer la consommation annuelle moyenne par *catégorie socio-professionnelle (CSP)* et
-l’associer au *salaire moyen* correspondant. Les données de population et de consommation
-sont combinées pour Paris et Évry, puis reliées à la table CSP.
-Formules algébriques :
-T5 = Population_Paris ⋈ (Population_Paris.Adresse = Consommation_Paris.ID_Adr)
-Consommation_Paris
-T6 = Population_Evry ⋈ (Population_Evry.Adresse = Consommation_Evry.ID_Adr)
-Consommation_Evry
-T7 = T5 ∪ T6
-T8 = γ CSP, (AVG(NB_KW_Jour) × 365) → Conso_moyenne_annuelle (T7)
-Consommation_CSP = T8 ■ (T8.CSP = CSP.ID_CSP) CSP
-Vérifications : existence des correspondances Adresse–ID_Adr, CSP manquants, valeurs nulles ou
-négatives dans NB_KW_Jour, unicité des identifiants CSP.
+Cette première étape du projet vise à concevoir les **mappings logiques** permettant d’évaluer la cohérence des données issues des différentes sources du projet :
+
+> *“Évaluation et amélioration de la qualité de données de consommation énergétique”*.
+
+L’objectif est d’identifier comment les **attributs des sources (S1 à S4)** s’articulent pour produire les **tables cibles**.
+
+---
+
+## 🏠 Normalisation et décomposition d’adresses
+
+Les adresses apparaissent dans plusieurs tables (`Consommation`, `Population`, `IRIS`), mais sous des formats différents.  
+Pour permettre des **jointures fiables** entre ces sources, il faut d’abord les **décomposer** et **normaliser**.
+
+---
+
+### Étape 1 : Découpage d’adresse complète
+
+**Sources :**  
+- `Population.Adresse`  
+- `Consommation.Adresse`
+
+**Objectif :**  
+Extraire les éléments suivants :
+
+- Numéro de rue → `Numero_Rue`  
+- Nom de la rue → `Nom_Rue`  
+- Code postal → `Code_Postal`  
+- Ville (optionnelle) → `Ville`
+
+**Table d’exemples :**
+
+| Champ         | Description                          | Exemple                        |
+|----------------|--------------------------------------|--------------------------------|
+| `Numero_Rue`  | Numéro + suffixe éventuel (BIS, TER) | 12BIS                          |
+| `Nom_Rue`     | Nom normalisé de la voie             | AVENUE DU GENERAL LECLERC      |
+| `Code_Postal` | Code postal à 5 chiffres             | 75013                          |
+
+**Exemple de transformation :**
+
+```
+"12 bis av. du Général Leclerc 75013"
+→ Numero_Rue = 12BIS
+→ Nom_Rue = AVENUE DU GENERAL LECLERC
+→ Code_Postal = 75013
+```
+
+---
+
+### Étape 2 : Nettoyage lexical et standardisation
+
+**But :** garantir que les adresses ont le même format dans toutes les tables.
+
+**Règles appliquées :**
+
+| Règle | Exemple |
+|-------|----------|
+| Supprimer les espaces superflus | `" AV . Victor Hugo "` → `"AV. VICTOR HUGO"` |
+| Mettre en majuscules | `"rue de Paris"` → `"RUE DE PARIS"` |
+| Supprimer les accents | `"É"` → `"E"`, `"Ç"` → `"C"` |
+| Uniformiser les abréviations | `"AV."` → `"AVENUE"`, `"BD"` → `"BOULEVARD"` |
+| Supprimer ponctuations et points | `"AV. VICTOR-HUGO"` → `"AVENUE VICTOR HUGO"` |
+| Normaliser les numéros | `"12 bis"` → `"12BIS"` |
+
+---
+
+### Étape 3 : Création d’une clé d’adresse normalisée
+
+**But :** obtenir une **clé unique** pour les jointures entre tables.
+
+**Transformation :**
+
+```
+Adresse_Normalisee = concat(Numero_Rue, "_", Nom_Rue, "_", Code_Postal)
+```
+
+**Exemple :**
+
+```
+"12BIS_AVENUE DU GENERAL LECLERC_75013"
+```
+
+Cette clé est calculée dans :
+- `Population`
+- `Consommation`
+- `IRIS` (si disponible)
+
+Elle sert à effectuer des **jointures précises**.
+
+---
+
+## 🔗 Jointures entre tables
+
+### Jointure `Consommation` ↔ `IRIS`
+
+**Objectif :**  
+Associer chaque adresse de consommation à une zone géographique IRIS.
+
+**Conditions de jointure :**
+
+```sql
+normalize(Consommation.Nom_Rue) = IRIS.ID_Rue
+AND Consommation.Code_Postal = IRIS.Code_Postal
+AND IRIS.ID_Ville IN ('Paris', 'Evry')
+```
+
+**Cas particuliers :**
+
+- Si `Nom_Rue` est absent → fallback sur `Code_Postal + Ville`  
+- Si plusieurs IRIS possibles → choisir le plus fréquent  
+- Si aucun match → `ID_IRIS = NULL`
+
+---
+
+### Jointure `Population` ↔ `Consommation`
+
+**Objectif :**  
+Relier les individus à leurs consommations par adresse.
+
+**Condition de jointure :**
+
+```sql
+Population.Adresse_Normalisee = Consommation.Adresse_Normalisee
+```
+
+**Cas gérés :**
+
+- Si plusieurs foyers sur une même adresse → consommation moyenne (`AVG`)  
+- Si une adresse présente dans `Consommation` mais absente dans `Population` → ligne ignorée
+
+---
+
+### Jointure `Population` ↔ `CSP`
+
+**Objectif :**  
+Associer chaque individu à sa **catégorie socio-professionnelle**.
+
+**Condition :**
+
+```sql
+Population.CSP = CSP.ID_CSP
+```
+
+---
+
+## 📊 Calculs d’agrégation
+
+| Type         | Transformation                  | Cible                  | Objectif                                      |
+|---------------|----------------------------------|-------------------------|-----------------------------------------------|
+| **SUM annuelle** | `SUM(NB_KW_Jour * 365)`       | `Consommation_IRIS_*`  | Total de consommation annuelle par IRIS       |
+| **AVG annuelle** | `AVG(NB_KW_Jour * 365)`       | `Consommation_CSP`     | Moyenne annuelle de consommation par CSP      |
+
+---
+
+
