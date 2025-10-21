@@ -76,92 +76,47 @@ Extraire les éléments suivants :
 
 ---
 
-### Étape 3 : Création d’une clé d’adresse normalisée
+_________________________________
+Consommation IRIS Paris
+T1_Paris — Agréger la consommation par rue et code postal
+T1_Paris = γ Nom_Rue, Code_Postal; SUM(NB_KW_Jour) → Total_KW (Consommation)
 
-**But :** obtenir une **clé unique** pour les jointures entre tables.
+T2_Paris — Jointure entre Consommation et IRIS
+T2_Paris = T2_Paris ⋈ (T2_Paris.Nom_Rue = IRIS.ID_Rue) IRIS
 
-**Transformation :**
+T3_Paris — Filtrer sur la ville “Paris”
+T3_Paris = σ (IRIS.ID_Ville = 'Paris')(T2_Paris)
 
-```
-Adresse_Normalisee = concat(Numero_Rue, "_", Nom_Rue, "_", Code_Postal)
-```
+Consommation_IRIS_Paris = γ ID_IRIS; (SUM(Total_KW) × 365) → Conso_moyenne_annuelle (T3_Paris)
+_________________________________
+Consommation IRIS Evry
 
-**Exemple :**
 
-```
-"12BIS_AVENUE DU GENERAL LECLERC_75013"
-```
+T1_Evry — Agréger la consommation par rue et code postal
+T1_Evry = γ Nom_Rue, Code_Postal; SUM(NB_KW_Jour) → Total_KW (Consommation)
 
-Cette clé est calculée dans :
-- `Population`
-- `Consommation`
-- `IRIS` (si disponible)
+T2_Evry — Jointure entre Consommation et IRIS
+T2_Evry = T1_Evry ⋈ (T1_Evry.Nom_Rue = IRIS.ID_Rue) IRIS
 
-Elle sert à effectuer des **jointures précises**.
+T3_Evry — Filtrer sur la ville “Evry”
+T3_Evry = σ (IRIS.ID_Ville = 'Evry')(T2_Paris)
 
----
+Consommation_IRIS_Evry = γ ID_IRIS; (SUM(Total_KW) × 365) → Conso_moyenne_annuelle (T3_Evry)
 
-## 🔗 Jointures entre tables
 
-### Jointure `Consommation` ↔ `IRIS`
+_________________________________
+Consommation CSP
+Population(ID_Personne, Nom, Prénom, N , nom_Rue, code_postal, CSP)
+on a fait la separation de l’adresse a l’étape 1
 
-**Objectif :**  
-Associer chaque adresse de consommation à une zone géographique IRIS.
 
-**Conditions de jointure :**
+T1_conso_pop— Jointure entre Consommation et population
+T1-conso_pop = Consomation ⋈    Population
+				(Consomation.nom_rue= Population.nom_Rue)
+T2_Conso_pop — group by
+Conso_pop=  γ(csp, nom_Rue, SUM(NB_KW_Jour) → Total_KW ) (T1-conso_pop)
 
-```sql
-normalize(Consommation.Nom_Rue) = IRIS.ID_Rue
-AND Consommation.Code_Postal = IRIS.Code_Postal
-AND IRIS.ID_Ville IN ('Paris', 'Evry')
-```
-
-**Cas particuliers :**
-
-- Si `Nom_Rue` est absent → fallback sur `Code_Postal + Ville`  
-- Si plusieurs IRIS possibles → choisir le plus fréquent  
-- Si aucun match → `ID_IRIS = NULL`
-
----
-
-### Jointure `Population` ↔ `Consommation`
-
-**Objectif :**  
-Relier les individus à leurs consommations par adresse.
-
-**Condition de jointure :**
-
-```sql
-Population.Adresse_Normalisee = Consommation.Adresse_Normalisee
-```
-
-**Cas gérés :**
-
-- Si plusieurs foyers sur une même adresse → consommation moyenne (`AVG`)  
-- Si une adresse présente dans `Consommation` mais absente dans `Population` → ligne ignorée
-
----
-
-### Jointure `Population` ↔ `CSP`
-
-**Objectif :**  
-Associer chaque individu à sa **catégorie socio-professionnelle**.
-
-**Condition :**
-
-```sql
-Population.CSP = CSP.ID_CSP
-```
-
----
-
-## 📊 Calculs d’agrégation
-
-| Type         | Transformation                  | Cible                  | Objectif                                      |
-|---------------|----------------------------------|-------------------------|-----------------------------------------------|
-| **SUM annuelle** | `SUM(NB_KW_Jour * 365)`       | `Consommation_IRIS_*`  | Total de consommation annuelle par IRIS       |
-| **AVG annuelle** | `AVG(NB_KW_Jour * 365)`       | `Consommation_CSP`     | Moyenne annuelle de consommation par CSP      |
-
----
-
+T3-Consommation_CSP  — jointure Conso_pop
+Consommation_CSP = Conso_pop ⋈    CSP
+			(conso_pop.CSP= CSP.id_csp)
 
